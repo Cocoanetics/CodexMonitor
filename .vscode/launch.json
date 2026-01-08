@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Codex}",
+            "name": "Debug codex-sessions",
+            "target": "codex-sessions",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug codex-sessions"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Codex}",
+            "name": "Release codex-sessions",
+            "target": "codex-sessions",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release codex-sessions"
+        }
+    ]
+}

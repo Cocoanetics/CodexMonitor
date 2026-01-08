@@ -21,7 +21,7 @@ swift run codex-sessions list 2026
 Output format:
 
 ```
-[Project]	HH:mm->HH:mm [count]	Title	Originator
+[Project]	yyyy-MM-dd HH:mm->HH:mm (count)	Title	Originator
 ```
 
 - `Project` is the last path component of the session `cwd`.
@@ -38,25 +38,25 @@ Title rules:
 
 ```sh
 swift run codex-sessions show <session-id>
+swift run codex-sessions show <session-id> --ranges 1...3,25...28
 ```
 
-Prints each message with a timestamp and role.
+Outputs messages as markdown with headers and strips `<INSTRUCTIONS>` blocks.
 
-### Markdown export
-
-```sh
-swift run codex-sessions markdown <session-id>
-swift run codex-sessions markdown <session-id> --ranges 1...3,25...28
-```
-
-- Outputs raw message text as markdown.
-- `--ranges` selects 1-based message indices (single values or `start...end`).
-- Always strips `<INSTRUCTIONS>...</INSTRUCTIONS>` blocks.
-- Each message is prefixed with a header like:
+Header format:
 
 ```
 ──── User · 09:14 · #12 ────
 ```
+
+Pretty JSON export:
+
+```sh
+swift run codex-sessions show <session-id> --json
+swift run codex-sessions show <session-id> --json --ranges 1...3,25...28
+```
+
+Includes a `summary` block (when available) plus all messages with timestamps.
 
 ## Notes
 

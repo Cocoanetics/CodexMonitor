@@ -83,6 +83,27 @@ private struct SessionMessage {
     let text: String
 }
 
+private struct SessionMessageExport: Encodable {
+    let role: String
+    let timestamp: String
+    let text: String
+}
+
+private struct SessionSummaryExport: Encodable {
+    let id: String
+    let start: String
+    let end: String
+    let cwd: String
+    let title: String
+    let originator: String
+    let messageCount: Int
+}
+
+private struct SessionExport: Encodable {
+    let summary: SessionSummaryExport?
+    let messages: [SessionMessageExport]
+}
+
 private enum TimestampParser {
     static func parse(_ string: String) -> Date? {
         let formatter = ISO8601DateFormatter()
@@ -106,6 +127,13 @@ private enum TimestampParser {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+
+    static func formatShortDateTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
         return formatter.string(from: date)
     }
 }
@@ -214,7 +242,7 @@ private enum SessionLoader {
         let titleText = firstUserMessage ?? "(no user message)"
         let cleaned = stripFilePaths(from: titleText)
         let flattened = normalizeWhitespace(cleaned)
-        let title = truncated(flattened, limit: 60)
+        let title = truncated(flattened, limit: 200)
         return SessionSummary(
             id: id,
             startDate: start,
@@ -393,6 +421,28 @@ private func messageMarkdown(_ message: SessionMessage) -> String {
     stripInstructionsBlock(from: message.text)
 }
 
+private func exportSummary(from summary: SessionSummary) -> SessionSummaryExport {
+    SessionSummaryExport(
+        id: summary.id,
+        start: TimestampParser.format(summary.startDate),
+        end: TimestampParser.format(summary.endDate),
+        cwd: summary.cwd,
+        title: summary.title,
+        originator: summary.originator,
+        messageCount: summary.messageCount
+    )
+}
+
+private func exportMessages(from messages: [SessionMessage]) -> [SessionMessageExport] {
+    messages.map { message in
+        SessionMessageExport(
+            role: message.role,
+            timestamp: TimestampParser.format(message.timestamp),
+            text: message.text
+        )
+    }
+}
+
 private func messageHeader(_ message: SessionMessage, index: Int) -> String {
     let role = message.role.capitalized
     let time = TimestampParser.formatTime(message.timestamp)
@@ -426,7 +476,7 @@ struct CodexSessions: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "codex-sessions",
         abstract: "Browse Codex session logs.",
-        subcommands: [List.self, Show.self, Markdown.self]
+        subcommands: [List.self, Show.self]
     )
 
     struct List: ParsableCommand {
@@ -446,11 +496,11 @@ struct CodexSessions: ParsableCommand {
             }
 
             for summary in summaries {
-                let start = TimestampParser.formatTime(summary.startDate)
+                let start = TimestampParser.formatShortDateTime(summary.startDate)
                 let end = TimestampParser.formatTime(summary.endDate)
                 let project = projectName(from: summary.cwd)
                 let originator = formatOriginator(summary.originator)
-                let line = "[\(project)]\t\(start)->\(end) [\(summary.messageCount)]\t\(summary.title)\t\(originator)"
+                let line = "[\(project)]\t\(start)->\(end) (\(summary.messageCount))\t\(summary.title)\t\(originator)"
                 print(line)
             }
         }
@@ -462,28 +512,8 @@ struct CodexSessions: ParsableCommand {
         @Argument(help: "Session ID to display")
         var sessionId: String
 
-        mutating func run() throws {
-            let fileURL = try SessionLoader.findSessionFile(id: sessionId)
-            let messages = try SessionLoader.loadMessages(from: fileURL)
-
-            if messages.isEmpty {
-                print("No messages found for session \(sessionId).")
-                return
-            }
-
-            for message in messages {
-                let timestamp = TimestampParser.format(message.timestamp)
-                let role = message.role.capitalized
-                print("[\(timestamp)] \(role): \(message.text)")
-            }
-        }
-    }
-
-    struct Markdown: ParsableCommand {
-        static let configuration = CommandConfiguration(abstract: "Show message text as markdown.")
-
-        @Argument(help: "Session ID to display")
-        var sessionId: String
+        @Flag(name: .long, help: "Output session as pretty JSON")
+        var json: Bool = false
 
         @Option(name: .long, help: "Message ranges like 1...3,25...28")
         var ranges: String?
@@ -491,6 +521,7 @@ struct CodexSessions: ParsableCommand {
         mutating func run() throws {
             let fileURL = try SessionLoader.findSessionFile(id: sessionId)
             let messages = try SessionLoader.loadMessages(from: fileURL)
+
             if messages.isEmpty {
                 print("No messages found for session \(sessionId).")
                 return
@@ -506,6 +537,21 @@ struct CodexSessions: ParsableCommand {
 
             if selected.isEmpty {
                 print("No messages matched the requested ranges for session \(sessionId).")
+                return
+            }
+
+            if json {
+                let summary = try SessionLoader.loadSummary(from: fileURL)
+                let export = SessionExport(
+                    summary: summary.map(exportSummary),
+                    messages: exportMessages(from: selected.map { $0.1 })
+                )
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                let data = try encoder.encode(export)
+                if let jsonString = String(data: data, encoding: .utf8) {
+                    print(jsonString)
+                }
                 return
             }
 
