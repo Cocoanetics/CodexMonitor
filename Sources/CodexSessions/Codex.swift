@@ -909,7 +909,7 @@ struct CodexSessions: ParsableCommand {
         var session: String?
 
         mutating func run() throws {
-            let activeWindow: TimeInterval = 60
+            let activeWindow: TimeInterval = 30
             let state: WatchState
             let targetURL: URL
 
