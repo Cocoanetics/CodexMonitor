@@ -73,6 +73,8 @@ private struct SessionSummary {
     let endDate: Date
     let cwd: String
     let title: String
+    let originator: String
+    let messageCount: Int
 }
 
 private struct SessionMessage {
@@ -98,6 +100,44 @@ private enum TimestampParser {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
         return formatter.string(from: date)
+    }
+
+    static func formatTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+}
+
+private enum RangeParser {
+    static func parse(_ input: String) throws -> [ClosedRange<Int>] {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return [] }
+        var ranges: [ClosedRange<Int>] = []
+        for part in trimmed.split(separator: ",") {
+            let token = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            if token.isEmpty { continue }
+            if token.contains("...") {
+                let bounds = token.components(separatedBy: "...")
+                guard bounds.count == 2 else {
+                    throw ValidationError("Invalid range segment: \(token)")
+                }
+                let start = bounds[0].trimmingCharacters(in: .whitespacesAndNewlines)
+                let end = bounds[1].trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let lower = Int(start), let upper = Int(end), lower >= 1, upper >= 1 else {
+                    throw ValidationError("Invalid range numbers: \(token)")
+                }
+                let ordered = lower <= upper ? lower...upper : upper...lower
+                ranges.append(ordered)
+            } else {
+                guard let value = Int(token), value >= 1 else {
+                    throw ValidationError("Invalid message index: \(token)")
+                }
+                ranges.append(value...value)
+            }
+        }
+        return ranges
     }
 }
 
@@ -134,9 +174,11 @@ private enum SessionLoader {
 
         var sessionId: String?
         var cwd = ""
+        var originator = ""
         var startDate: Date?
         var endDate: Date?
         var firstUserMessage: String?
+        var messageCount = 0
 
         for line in lines {
             let record = try decodeRecord(from: line)
@@ -148,20 +190,40 @@ private enum SessionLoader {
             if record.type == "session_meta" {
                 sessionId = record.payload["id"]?.stringValue
                 cwd = record.payload["cwd"]?.stringValue ?? cwd
+                originator = record.payload["originator"]?.stringValue ?? originator
+            }
+
+            if record.type == "response_item",
+               record.payload["type"]?.stringValue == "message" {
+                messageCount += 1
             }
 
             if firstUserMessage == nil, record.type == "response_item" {
                 if record.payload["role"]?.stringValue == "user",
                    let content = record.payload["content"],
                    let message = extractText(from: content) {
-                    firstUserMessage = message
+                    let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if let titleSource = extractUserTitle(from: trimmed) {
+                        firstUserMessage = titleSource
+                    }
                 }
             }
         }
 
         guard let id = sessionId, let start = startDate, let end = endDate else { return nil }
-        let title = truncated(firstUserMessage ?? "(no user message)", limit: 60)
-        return SessionSummary(id: id, startDate: start, endDate: end, cwd: cwd, title: title)
+        let titleText = firstUserMessage ?? "(no user message)"
+        let cleaned = stripFilePaths(from: titleText)
+        let flattened = normalizeWhitespace(cleaned)
+        let title = truncated(flattened, limit: 60)
+        return SessionSummary(
+            id: id,
+            startDate: start,
+            endDate: end,
+            cwd: cwd,
+            title: title,
+            originator: originator,
+            messageCount: messageCount
+        )
     }
 
     static func loadMessages(from url: URL) throws -> [SessionMessage] {
@@ -182,12 +244,27 @@ private enum SessionLoader {
     }
 
     static func findSessionFile(id: String) throws -> URL {
-        for url in allSessionFiles() {
-            if let summary = try loadSummary(from: url), summary.id == id {
+        if let byName = findSessionFileByName(id: id) {
+            return byName
+        }
+        throw SessionError.sessionNotFound(id)
+    }
+
+    private static func findSessionFileByName(id: String) -> URL? {
+        guard let enumerator = FileManager.default.enumerator(
+            at: sessionsRoot,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return nil
+        }
+        for case let url as URL in enumerator {
+            guard url.pathExtension == "jsonl" else { continue }
+            if url.lastPathComponent.contains(id) {
                 return url
             }
         }
-        throw SessionError.sessionNotFound(id)
+        return nil
     }
 
     private static func readLines(from url: URL) throws -> [Substring] {
@@ -228,10 +305,120 @@ private enum SessionLoader {
     }
 }
 
+private func isSkippableUserMessage(_ text: String) -> Bool {
+    let prefixes = [
+        "# AGENTS.md instructions",
+        "<environment_context>"
+    ]
+    return prefixes.contains { text.hasPrefix($0) }
+}
+
+private func extractUserTitle(from text: String) -> String? {
+    if isSkippableUserMessage(text) {
+        return nil
+    }
+    if let request = extractRequestSection(from: text) {
+        return request
+    }
+    return text.isEmpty ? nil : text
+}
+
+private func extractRequestSection(from text: String) -> String? {
+    let lines = text.split(whereSeparator: \.isNewline).map(String.init)
+    guard let headerIndex = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "## My request for Codex:" }) else {
+        return nil
+    }
+    let contentStart = headerIndex + 1
+    guard contentStart < lines.count else { return nil }
+    var collected: [String] = []
+    for line in lines[contentStart...] {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("## ") {
+            break
+        }
+        collected.append(line)
+    }
+    let result = collected.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    return result.isEmpty ? nil : result
+}
+
+private func firstLine(of text: String) -> String {
+    if let line = text.split(whereSeparator: \.isNewline).first {
+        return String(line)
+    }
+    return text
+}
+
+private func normalizeWhitespace(_ text: String) -> String {
+    let replaced = text.replacingOccurrences(of: "\n", with: " ")
+        .replacingOccurrences(of: "\r", with: " ")
+    return replaced.trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+private func stripFilePaths(from text: String) -> String {
+    let pattern = "/Users/[^\\s]+?\\.[A-Za-z0-9]+(?::\\d+(?::\\d+)?)?"
+    guard let regex = try? NSRegularExpression(pattern: pattern) else {
+        return text
+    }
+    let range = NSRange(text.startIndex..<text.endIndex, in: text)
+    return regex.stringByReplacingMatches(in: text, range: range, withTemplate: "")
+}
+
 private func truncated(_ text: String, limit: Int) -> String {
     guard text.count > limit, limit > 3 else { return text }
     let endIndex = text.index(text.startIndex, offsetBy: limit - 3)
     return String(text[..<endIndex]) + "..."
+}
+
+private func projectName(from cwd: String) -> String {
+    let trimmed = cwd.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return "Unknown" }
+    return URL(fileURLWithPath: trimmed).lastPathComponent
+}
+
+private func formatOriginator(_ originator: String) -> String {
+    let trimmed = originator.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.isEmpty { return "-" }
+    switch trimmed {
+    case "codex_vscode":
+        return "VSCode"
+    case "codex_exec", "codex_cli":
+        return "CLI"
+    default:
+        return trimmed
+    }
+}
+
+private func messageMarkdown(_ message: SessionMessage) -> String {
+    stripInstructionsBlock(from: message.text)
+}
+
+private func messageHeader(_ message: SessionMessage, index: Int) -> String {
+    let role = message.role.capitalized
+    let time = TimestampParser.formatTime(message.timestamp)
+    return "──── \(role) · \(time) · #\(index) ────"
+}
+
+private func selectMessages(_ messages: [SessionMessage], ranges: [ClosedRange<Int>]) -> [(Int, SessionMessage)] {
+    let indexed = messages.enumerated().map { ($0 + 1, $1) }
+    guard !ranges.isEmpty else { return indexed }
+    return indexed.filter { position, _ in
+        ranges.contains(where: { $0.contains(position) })
+    }
+}
+
+private func stripInstructionsBlock(from text: String) -> String {
+    var result = text
+    let startTag = "<INSTRUCTIONS>"
+    let endTag = "</INSTRUCTIONS>"
+
+    while let startRange = result.range(of: startTag),
+          let endRange = result.range(of: endTag, range: startRange.upperBound..<result.endIndex) {
+        let removalRange = startRange.lowerBound..<endRange.upperBound
+        result.removeSubrange(removalRange)
+    }
+
+    return result.trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
 @main
@@ -239,7 +426,7 @@ struct CodexSessions: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "codex-sessions",
         abstract: "Browse Codex session logs.",
-        subcommands: [List.self, Show.self]
+        subcommands: [List.self, Show.self, Markdown.self]
     )
 
     struct List: ParsableCommand {
@@ -259,9 +446,11 @@ struct CodexSessions: ParsableCommand {
             }
 
             for summary in summaries {
-                let start = TimestampParser.format(summary.startDate)
-                let end = TimestampParser.format(summary.endDate)
-                let line = "\(summary.id) | \(start) -> \(end) | \(summary.cwd) | \(summary.title)"
+                let start = TimestampParser.formatTime(summary.startDate)
+                let end = TimestampParser.formatTime(summary.endDate)
+                let project = projectName(from: summary.cwd)
+                let originator = formatOriginator(summary.originator)
+                let line = "[\(project)]\t\(start)->\(end) [\(summary.messageCount)]\t\(summary.title)\t\(originator)"
                 print(line)
             }
         }
@@ -286,6 +475,46 @@ struct CodexSessions: ParsableCommand {
                 let timestamp = TimestampParser.format(message.timestamp)
                 let role = message.role.capitalized
                 print("[\(timestamp)] \(role): \(message.text)")
+            }
+        }
+    }
+
+    struct Markdown: ParsableCommand {
+        static let configuration = CommandConfiguration(abstract: "Show message text as markdown.")
+
+        @Argument(help: "Session ID to display")
+        var sessionId: String
+
+        @Option(name: .long, help: "Message ranges like 1...3,25...28")
+        var ranges: String?
+
+        mutating func run() throws {
+            let fileURL = try SessionLoader.findSessionFile(id: sessionId)
+            let messages = try SessionLoader.loadMessages(from: fileURL)
+            if messages.isEmpty {
+                print("No messages found for session \(sessionId).")
+                return
+            }
+
+            let selected: [(Int, SessionMessage)]
+            if let ranges = ranges {
+                let parsed = try RangeParser.parse(ranges)
+                selected = selectMessages(messages, ranges: parsed)
+            } else {
+                selected = selectMessages(messages, ranges: [])
+            }
+
+            if selected.isEmpty {
+                print("No messages matched the requested ranges for session \(sessionId).")
+                return
+            }
+
+            for (index, entry) in selected.enumerated() {
+                let position = entry.0
+                let message = entry.1
+                if index > 0 { print("") }
+                print(messageHeader(message, index: position))
+                print(messageMarkdown(message))
             }
         }
     }

@@ -1,4 +1,5 @@
 .DS_Store
+google*
 /.build
 /Packages
 xcuserdata/
@@ -6,3 +7,7 @@ DerivedData/
 .swiftpm/configuration/registries.json
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 .netrc
+# Environment variables
+.env
+.env.*
+!.env.example
