@@ -58,6 +58,15 @@ swift run codex-sessions show <session-id> --json --ranges 1...3,25...28
 
 Includes a `summary` block (when available) plus all messages with timestamps.
 
+### Watch sessions
+
+```sh
+swift run codex-sessions watch
+swift run codex-sessions watch --session <session-id>
+```
+
+Prints the list-style line for each new or updated `.jsonl` session file under the sessions root.
+
 ## Notes
 
 - Session lookup is filename-based for speed (the session ID must appear in the `.jsonl` filename).
