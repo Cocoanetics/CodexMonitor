@@ -19,6 +19,26 @@
             "target": "codex-sessions",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release codex-sessions"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Codex}",
+            "name": "Debug CodexMonitor",
+            "target": "CodexMonitor",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug CodexMonitor"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Codex}",
+            "name": "Release CodexMonitor",
+            "target": "CodexMonitor",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release CodexMonitor"
         }
     ]
 }
