@@ -4,19 +4,19 @@
 import PackageDescription
 
 let package = Package(
-    name: "CodexSessions",
+    name: "CodexMonitor",
     platforms: [
         .macOS(.v15)
     ],
     products: [
         .library(name: "CodexCore", targets: ["CodexCore"]),
         .executable(
-            name: "codex-sessions",
-            targets: ["CodexSessions"]
+            name: "CodexMonitor-CLI",
+            targets: ["CodexMonitorCLI"]
         ),
         .executable(
-            name: "CodexMonitor",
-            targets: ["CodexMonitor"]
+            name: "CodexMonitor-App",
+            targets: ["CodexMonitorApp"]
         )
     ],
     dependencies: [
@@ -29,7 +29,7 @@ let package = Package(
             dependencies: []
         ),
         .executableTarget(
-            name: "CodexSessions",
+            name: "CodexMonitorCLI",
             dependencies: [
                 "CodexCore",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
@@ -37,7 +37,7 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "CodexMonitor",
+            name: "CodexMonitorApp",
             dependencies: [
                 "CodexCore",
                 .product(name: "Logging", package: "swift-log")
