@@ -882,7 +882,7 @@ struct CodexMonitorCLI: ParsableCommand {
     }
 
     static let configuration = CommandConfiguration(
-        commandName: "CodexMonitor-CLI",
+        commandName: "codexmonitor",
         abstract: "Browse Codex session logs.",
         subcommands: [List.self, Show.self, Watch.self]
     )
