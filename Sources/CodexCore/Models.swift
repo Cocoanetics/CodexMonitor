@@ -75,7 +75,7 @@ public struct SessionRecord: Decodable {
     }
 }
 
-public struct SessionSummary {
+public struct SessionSummary: Sendable {
     public let id: String
     public let startDate: Date
     public let endDate: Date
@@ -95,7 +95,7 @@ public struct SessionSummary {
     }
 }
 
-public struct SessionMessage {
+public struct SessionMessage: Sendable {
     public let role: String
     public let timestamp: Date
     public let text: String

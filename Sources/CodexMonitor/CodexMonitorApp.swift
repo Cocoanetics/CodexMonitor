@@ -15,28 +15,19 @@ struct CodexMonitorApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            if model.activeSessions.isEmpty {
-                Text("No active sessions")
-            } else {
-                ForEach(model.activeSessions) { session in
-                    Button {
-                        // Action could open the file or something useful
-                        NSWorkspace.shared.open(session.url)
-                    } label: {
-                        SessionRow(session: session, now: model.now)
-                    }
-                }
-            }
-            Divider()
-            Button("Quit") {
-                NSApplication.shared.terminate(nil)
-            }
+            MenuBarContentView(model: model)
         } label: {
             let icon = model.activeSessions.isEmpty
                 ? "bubble.left.and.bubble.right"
                 : "bubble.left.and.bubble.right.fill"
             Image(systemName: icon)
         }
+        .menuBarExtraStyle(.menu)
+        WindowGroup(id: "session") {
+            SessionMessagesView()
+                .environmentObject(model)
+        }
+        .handlesExternalEvents(matching: ["session"])
     }
 
     private static func configureLogging() {
@@ -51,6 +42,52 @@ struct CodexMonitorApp: App {
         #else
         LoggingSystem.bootstrap(StreamLogHandler.standardError)
         #endif
+    }
+}
+
+private struct MenuBarContentView: View {
+    @ObservedObject var model: SessionViewModel
+
+    var body: some View {
+        if model.todaySessions.isEmpty {
+            Text("No sessions yet today")
+        } else {
+            ForEach(model.todaySessions) { session in
+                Button {
+                    openSession(session)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: model.isActive(session) ? "circle.fill" : "circle")
+                            .imageScale(.small)
+                            .foregroundStyle(model.isActive(session) ? .green : .secondary)
+                        Text(sessionLabel(session))
+                    }
+                }
+            }
+        }
+        Divider()
+        Button("Quit") {
+            NSApplication.shared.terminate(nil)
+        }
+    }
+
+    private func openSession(_ session: SessionViewModel.TodaySession) {
+        NSApp.activate(ignoringOtherApps: true)
+        model.selectSession(summary: SessionSummary(
+            id: session.id,
+            startDate: session.startDate,
+            endDate: session.endDate,
+            cwd: session.cwd,
+            title: session.title,
+            originator: session.originator,
+            messageCount: 0
+        ), url: session.url)
+        SessionWindowController.shared.show(model: model)
+    }
+
+    private func sessionLabel(_ session: SessionViewModel.TodaySession) -> String {
+        let age = relativeAgeString(since: session.endDate, now: model.now)
+        return "\(session.project) | \(age)"
     }
 }
 

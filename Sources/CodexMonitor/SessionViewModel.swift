@@ -18,7 +18,20 @@ class SessionViewModel: ObservableObject {
         }
     }
 
+    struct TodaySession: Identifiable, Equatable {
+        let id: String
+        let title: String
+        let project: String
+        let originator: String
+        let startDate: Date
+        let endDate: Date
+        let cwd: String
+        let url: URL
+    }
+
     @Published var activeSessions: [ActiveSession] = []
+    @Published var todaySessions: [TodaySession] = []
+    @Published var selectedSession: ActiveSession?
     @Published var now: Date = Date()
     private var watcher: SessionWatcher?
     private var sessionsByURL: [URL: ActiveSession] = [:]
@@ -31,6 +44,7 @@ class SessionViewModel: ObservableObject {
 
     func startWatching() {
         startClock()
+        refreshTodaySessions()
         let watcher = SessionWatcher(watchedFile: nil, activeWindow: 30)
         self.watcher = watcher
         
@@ -38,6 +52,7 @@ class SessionViewModel: ObservableObject {
             Task { @MainActor [weak self] in
                 self?.logSessionEvent(prefix: "Session active:", url: url, summary: summary)
                 self?.updateSession(url: url, summary: summary)
+                self?.refreshTodaySessions()
             }
         }
         
@@ -45,6 +60,7 @@ class SessionViewModel: ObservableObject {
             Task { @MainActor [weak self] in
                 self?.logSessionEvent(prefix: "Session modified:", url: url, summary: summary)
                 self?.updateSession(url: url, summary: summary)
+                self?.refreshTodaySessions()
             }
         }
         
@@ -52,6 +68,7 @@ class SessionViewModel: ObservableObject {
              Task { @MainActor [weak self] in
                 self?.logSessionEvent(prefix: "Session inactive:", url: url, summary: summary)
                 self?.removeSession(url: url)
+                self?.refreshTodaySessions()
             }
         }
         
@@ -93,6 +110,9 @@ class SessionViewModel: ObservableObject {
         )
         
         sessionsByURL[url] = session
+        if selectedSession?.url == url {
+            selectedSession = session
+        }
         updateList()
     }
     
@@ -113,5 +133,60 @@ class SessionViewModel: ObservableObject {
         } else {
             logger.info("\(prefix) \(url.lastPathComponent)")
         }
+    }
+
+    func selectSession(_ session: ActiveSession) {
+        selectedSession = session
+    }
+
+    func selectSession(summary: SessionSummary, url: URL) {
+        let project = SessionUtils.projectName(from: summary.cwd)
+        selectedSession = ActiveSession(
+            id: summary.id,
+            title: summary.title,
+            project: project,
+            originator: summary.originator,
+            lastModified: summary.endDate,
+            url: url
+        )
+    }
+
+    private func refreshTodaySessions() {
+        let path = SessionViewModel.todayPath()
+        do {
+            let snapshot = try SessionLoader.sessionFilesSnapshot(under: path)
+            let sortedFiles = snapshot.sorted { $0.value > $1.value }
+                .prefix(10)
+                .map { $0.key }
+            let summaries = try sortedFiles.compactMap { url -> TodaySession? in
+                guard let summary = try SessionLoader.loadSummary(from: url) else { return nil }
+                let project = SessionUtils.projectName(from: summary.cwd)
+                return TodaySession(
+                    id: summary.id,
+                    title: summary.title,
+                    project: project,
+                    originator: summary.originator,
+                    startDate: summary.startDate,
+                    endDate: summary.endDate,
+                    cwd: summary.cwd,
+                    url: url
+                )
+            }
+            todaySessions = summaries
+        } catch {
+            todaySessions = []
+        }
+    }
+
+    private static func todayPath(now: Date = Date()) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone.current
+        formatter.dateFormat = "yyyy/MM/dd"
+        return formatter.string(from: now)
+    }
+
+    func isActive(_ session: TodaySession) -> Bool {
+        sessionsByURL[session.url] != nil
     }
 }

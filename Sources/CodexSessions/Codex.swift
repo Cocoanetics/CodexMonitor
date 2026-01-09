@@ -167,7 +167,9 @@ private enum RangeParser {
                 }
                 let start = bounds[0].trimmingCharacters(in: .whitespacesAndNewlines)
                 let end = bounds[1].trimmingCharacters(in: .whitespacesAndNewlines)
-                guard let lower = Int(start), let upper = Int(end), lower >= 1, upper >= 1 else {
+                let lower = start.isEmpty ? 1 : Int(start)
+                let upper = end.isEmpty ? Int.max : Int(end)
+                guard let lower, let upper, lower >= 1, upper >= 1 else {
                     throw ValidationError("Invalid range numbers: \(token)")
                 }
                 let ordered = lower <= upper ? lower...upper : upper...lower
@@ -931,7 +933,7 @@ struct CodexSessions: ParsableCommand {
         @Flag(name: .long, help: "Output session as pretty JSON")
         var json: Bool = false
 
-        @Option(name: .long, help: "Message ranges like 1...3,25...28")
+        @Option(name: .long, help: "Message ranges like 1...3,25...28,5..., ...10")
         var ranges: String?
 
         mutating func run() throws {
