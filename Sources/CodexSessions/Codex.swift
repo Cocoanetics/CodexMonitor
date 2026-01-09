@@ -94,7 +94,7 @@ private struct SessionMessage {
 
 private struct SessionMessageExport: Encodable {
     let role: String
-    let timestamp: String
+    let timestamp: Date
     let text: String
 }
 
@@ -105,8 +105,8 @@ private struct FileIdentity: Hashable {
 
 private struct SessionSummaryExport: Encodable {
     let id: String
-    let start: String
-    let end: String
+    let start: Date
+    let end: Date
     let cwd: String
     let title: String
     let originator: String
@@ -298,9 +298,10 @@ private enum SessionLoader {
 
         guard let id = sessionId, let start = startDate, let end = endDate else { return nil }
         let titleText = firstUserMessage ?? "(no user message)"
-        let cleaned = stripFilePaths(from: titleText)
-        let flattened = normalizeWhitespace(cleaned)
-        let title = truncated(flattened, limit: 200)
+        let cleaned = stripLinks(from: stripFilePaths(from: titleText))
+        let line = firstLine(of: stripColonNewlineSuffix(cleaned))
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = truncated(trimTrailingNonAlnum(trimmed), limit: 60)
         return SessionSummary(
             id: id,
             startDate: start,
@@ -435,6 +436,38 @@ private func firstLine(of text: String) -> String {
     return text
 }
 
+private func firstParagraph(of text: String) -> String {
+    var lines: [String] = []
+    var started = false
+    for line in text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            if started { break }
+            continue
+        }
+        started = true
+        lines.append(String(line))
+    }
+    if lines.isEmpty { return text }
+    return lines.joined(separator: "\n")
+}
+
+private func trimTrailingNonAlnum(_ text: String) -> String {
+    var result = text
+    while let last = result.unicodeScalars.last {
+        if CharacterSet.alphanumerics.contains(last) { break }
+        result.removeLast()
+    }
+    return result
+}
+
+private func stripColonNewlineSuffix(_ text: String) -> String {
+    if let range = text.range(of: ":\n") {
+        return String(text[..<range.lowerBound])
+    }
+    return text
+}
+
 private func normalizeWhitespace(_ text: String) -> String {
     let replaced = text.replacingOccurrences(of: "\n", with: " ")
         .replacingOccurrences(of: "\r", with: " ")
@@ -443,6 +476,15 @@ private func normalizeWhitespace(_ text: String) -> String {
 
 private func stripFilePaths(from text: String) -> String {
     let pattern = "/Users/[^\\s]+?\\.[A-Za-z0-9]+(?::\\d+(?::\\d+)?)?"
+    guard let regex = try? NSRegularExpression(pattern: pattern) else {
+        return text
+    }
+    let range = NSRange(text.startIndex..<text.endIndex, in: text)
+    return regex.stringByReplacingMatches(in: text, range: range, withTemplate: "")
+}
+
+private func stripLinks(from text: String) -> String {
+    let pattern = "https?://\\S+"
     guard let regex = try? NSRegularExpression(pattern: pattern) else {
         return text
     }
@@ -465,14 +507,17 @@ private func projectName(from cwd: String) -> String {
 private func formatSummaryLine(_ summary: SessionSummary) -> String {
     let start = TimestampParser.formatShortDateTime(summary.startDate)
     let end = TimestampParser.formatTime(summary.endDate)
-    return "\(summary.id)\t\(start)->\(end)\t\(summary.cwd)\t\(summary.title)"
+    let project = projectName(from: summary.cwd)
+    let title = trimTrailingNonAlnum(firstLine(of: stripColonNewlineSuffix(summary.title)))
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    return "\(summary.id)\t\(start)->\(end) (\(summary.messageCount))\t[\(project)]\t\"\(title)\""
 }
 
 private func formatWatchLine(_ summary: SessionSummary) -> String {
     let start = TimestampParser.formatShortDateTime(summary.startDate)
     let end = TimestampParser.formatTime(summary.endDate)
     let project = projectName(from: summary.cwd)
-    return "[\(project)] \(start)->\(end) \(summary.title) [\(summary.id)]"
+    return "[\(project)] \(start)->\(end) [\(summary.id)]"
 }
 
 private func messageMarkdown(_ message: SessionMessage) -> String {
@@ -482,8 +527,8 @@ private func messageMarkdown(_ message: SessionMessage) -> String {
 private func exportSummary(from summary: SessionSummary) -> SessionSummaryExport {
     SessionSummaryExport(
         id: summary.id,
-        start: TimestampParser.format(summary.startDate),
-        end: TimestampParser.format(summary.endDate),
+        start: summary.startDate,
+        end: summary.endDate,
         cwd: summary.cwd,
         title: summary.title,
         originator: summary.originator,
@@ -495,7 +540,7 @@ private func exportMessages(from messages: [SessionMessage]) -> [SessionMessageE
     messages.map { message in
         SessionMessageExport(
             role: message.role,
-            timestamp: TimestampParser.format(message.timestamp),
+            timestamp: message.timestamp,
             text: message.text
         )
     }
@@ -549,6 +594,7 @@ private final class WatchState: @unchecked Sendable {
     private var pollTimer: DispatchSourceTimer?
     private var watchers: [URL: FileWatcher] = [:]
     private var cachedSummaries: [URL: SessionSummary] = [:]
+    private var activeURLs: Set<URL> = []
     private let queue = DispatchQueue(label: "codex.sessions.watch")
     private let logger = Logger(label: "codex-sessions.watch")
 
@@ -576,9 +622,7 @@ private final class WatchState: @unchecked Sendable {
     private func performBootstrap() {
         do {
             if let watchedFile {
-                if installWatcher(for: watchedFile) {
-                    try printActiveSession(for: watchedFile)
-                }
+                _ = installWatcher(for: watchedFile)
                 if let modified = try SessionLoader.sessionFileSnapshot(for: watchedFile) {
                     snapshot[watchedFile] = modified
                 }
@@ -588,9 +632,7 @@ private final class WatchState: @unchecked Sendable {
             let latest = try SessionLoader.sessionFilesSnapshot(under: nil)
             let activeCutoff = Date().addingTimeInterval(-activeWindow)
             for (url, modified) in latest where modified >= activeCutoff {
-                if installWatcher(for: url) {
-                    try printActiveSession(for: url)
-                }
+                _ = installWatcher(for: url)
                 snapshot[url] = modified
             }
         } catch {
@@ -638,14 +680,10 @@ private final class WatchState: @unchecked Sendable {
             if let watcher = watchers[url] {
                 if watcher.identity != currentIdentity {
                     removeWatcher(watcher, url: url, printInactive: false)
-                    if installWatcher(for: url) {
-                        try printActiveSession(for: url)
-                    }
+                    _ = installWatcher(for: url)
                 }
             } else {
-                if installWatcher(for: url) {
-                    try printActiveSession(for: url)
-                }
+                _ = installWatcher(for: url)
             }
             snapshot[url] = modified
         }
@@ -679,14 +717,24 @@ private final class WatchState: @unchecked Sendable {
         let oldDate = snapshot[url]
         guard oldDate == nil || modified > oldDate! else { return }
         if let summary = try cacheSummaryIfNeeded(for: url) {
-            let message = "Session modified: - \(formatWatchLine(summary))"
-            print(message)
-            logger.info("\(message)")
+            if activeURLs.contains(url) {
+                let message = "Session modified: \(formatWatchLine(summary))"
+                print(message)
+                logger.info("\(message)")
+            } else {
+                try printActiveSession(for: url)
+                activeURLs.insert(url)
+            }
             snapshot[url] = summary.endDate
         } else {
-            let message = "Session modified: - \(url.lastPathComponent)"
-            print(message)
-            logger.info("\(message)")
+            if activeURLs.contains(url) {
+                let message = "Session modified: \(url.lastPathComponent)"
+                print(message)
+                logger.info("\(message)")
+            } else {
+                try printActiveSession(for: url)
+                activeURLs.insert(url)
+            }
             snapshot[url] = modified
         }
     }
@@ -705,21 +753,36 @@ private final class WatchState: @unchecked Sendable {
             )
             cachedSummaries[url] = updated
             snapshot[url] = eventTime
-            let message = "Session modified: - \(formatWatchLine(updated))"
-            print(message)
-            logger.info("\(message)")
+            if activeURLs.contains(url) {
+                let message = "Session modified: \(formatWatchLine(updated))"
+                print(message)
+                logger.info("\(message)")
+            } else {
+                try printActiveSession(for: url)
+                activeURLs.insert(url)
+            }
             return
         }
         if let summary = try cacheSummaryIfNeeded(for: url) {
             snapshot[url] = summary.endDate
-            let message = "Session modified: - \(formatWatchLine(summary))"
-            print(message)
-            logger.info("\(message)")
+            if activeURLs.contains(url) {
+                let message = "Session modified: \(formatWatchLine(summary))"
+                print(message)
+                logger.info("\(message)")
+            } else {
+                try printActiveSession(for: url)
+                activeURLs.insert(url)
+            }
         } else {
             snapshot[url] = eventTime
-            let message = "Session modified: - \(url.lastPathComponent)"
-            print(message)
-            logger.info("\(message)")
+            if activeURLs.contains(url) {
+                let message = "Session modified: \(url.lastPathComponent)"
+                print(message)
+                logger.info("\(message)")
+            } else {
+                try printActiveSession(for: url)
+                activeURLs.insert(url)
+            }
         }
     }
 
@@ -763,6 +826,7 @@ private final class WatchState: @unchecked Sendable {
         }
         watcher.source.cancel()
         watchers.removeValue(forKey: url)
+        activeURLs.remove(url)
         snapshot.removeValue(forKey: url)
         cachedSummaries.removeValue(forKey: url)
     }
@@ -827,10 +891,25 @@ struct CodexSessions: ParsableCommand {
         @Argument(help: "Relative date path like 2026/01/08, 2026/01, or 2026")
         var path: String
 
+        @Flag(name: .long, help: "Output session list as pretty JSON")
+        var json: Bool = false
+
         mutating func run() throws {
             let files = try SessionLoader.sessionFiles(under: path)
             let summaries = try files.compactMap { try SessionLoader.loadSummary(from: $0) }
                 .sorted { $0.startDate < $1.startDate }
+
+            if json {
+                let exports = summaries.map(exportSummary)
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                encoder.dateEncodingStrategy = .iso8601
+                let data = try encoder.encode(exports)
+                if let jsonString = String(data: data, encoding: .utf8) {
+                    print(jsonString)
+                }
+                return
+            }
 
             if summaries.isEmpty {
                 print("No sessions found for \(path).")
@@ -885,6 +964,7 @@ struct CodexSessions: ParsableCommand {
                 )
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                encoder.dateEncodingStrategy = .iso8601
                 let data = try encoder.encode(export)
                 if let jsonString = String(data: data, encoding: .utf8) {
                     print(jsonString)
@@ -965,7 +1045,7 @@ struct CodexSessions: ParsableCommand {
             }
 
             state.bootstrapWatchers()
-            state.startPolling(interval: 30.0)
+            state.startPolling(interval: 5.0)
             dispatchMain()
         }
     }

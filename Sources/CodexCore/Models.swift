@@ -109,10 +109,10 @@ public struct SessionMessage {
 
 public struct SessionMessageExport: Encodable {
     public let role: String
-    public let timestamp: String
+    public let timestamp: Date
     public let text: String
     
-    public init(role: String, timestamp: String, text: String) {
+    public init(role: String, timestamp: Date, text: String) {
         self.role = role
         self.timestamp = timestamp
         self.text = text
@@ -131,14 +131,14 @@ public struct FileIdentity: Hashable {
 
 public struct SessionSummaryExport: Encodable {
     public let id: String
-    public let start: String
-    public let end: String
+    public let start: Date
+    public let end: Date
     public let cwd: String
     public let title: String
     public let originator: String
     public let messageCount: Int
     
-    public init(id: String, start: String, end: String, cwd: String, title: String, originator: String, messageCount: Int) {
+    public init(id: String, start: Date, end: Date, cwd: String, title: String, originator: String, messageCount: Int) {
         self.id = id
         self.start = start
         self.end = end

@@ -49,7 +49,7 @@ public enum SessionUtils {
         if lowercased == "codex_vscode" {
             return "VS.CODE"
         }
-        if lowercased == "codex_cli" || lowercased == "codex_tui" {
+        if lowercased == "codex_cli" || lowercased == "codex_tui" || lowercased == "codex_exec" {
             return "CLI"
         }
         var display = trimmed
