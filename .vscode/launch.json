@@ -4,41 +4,41 @@
             "type": "swift",
             "request": "launch",
             "args": [],
-            "cwd": "${workspaceFolder:Codex}",
-            "name": "Debug codex-sessions",
-            "target": "codex-sessions",
+            "cwd": "${workspaceFolder:CodexMonitor}",
+            "name": "Debug CodexMonitor-CLI",
+            "target": "CodexMonitor-CLI",
             "configuration": "debug",
-            "preLaunchTask": "swift: Build Debug codex-sessions"
+            "preLaunchTask": "swift: Build Debug CodexMonitor-CLI"
         },
         {
             "type": "swift",
             "request": "launch",
             "args": [],
-            "cwd": "${workspaceFolder:Codex}",
-            "name": "Release codex-sessions",
-            "target": "codex-sessions",
+            "cwd": "${workspaceFolder:CodexMonitor}",
+            "name": "Release CodexMonitor-CLI",
+            "target": "CodexMonitor-CLI",
             "configuration": "release",
-            "preLaunchTask": "swift: Build Release codex-sessions"
+            "preLaunchTask": "swift: Build Release CodexMonitor-CLI"
         },
         {
             "type": "swift",
             "request": "launch",
             "args": [],
-            "cwd": "${workspaceFolder:Codex}",
-            "name": "Debug CodexMonitor",
-            "target": "CodexMonitor",
+            "cwd": "${workspaceFolder:CodexMonitor}",
+            "name": "Debug CodexMonitor-App",
+            "target": "CodexMonitor-App",
             "configuration": "debug",
-            "preLaunchTask": "swift: Build Debug CodexMonitor"
+            "preLaunchTask": "swift: Build Debug CodexMonitor-App"
         },
         {
             "type": "swift",
             "request": "launch",
             "args": [],
-            "cwd": "${workspaceFolder:Codex}",
-            "name": "Release CodexMonitor",
-            "target": "CodexMonitor",
+            "cwd": "${workspaceFolder:CodexMonitor}",
+            "name": "Release CodexMonitor-App",
+            "target": "CodexMonitor-App",
             "configuration": "release",
-            "preLaunchTask": "swift: Build Release CodexMonitor"
+            "preLaunchTask": "swift: Build Release CodexMonitor-App"
         }
     ]
 }

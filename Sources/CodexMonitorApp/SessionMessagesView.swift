@@ -200,8 +200,16 @@ private struct SessionMessageRow: View {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             return trimmed == "My request for Codex:" || trimmed == "## My request for Codex:"
         }) {
-            let remaining = lines.dropFirst(markerIndex + 1).joined(separator: "\n")
-            return remaining.trimmingCharacters(in: .whitespacesAndNewlines)
+            let start = markerIndex + 1
+            let remainingLines = Array(lines.dropFirst(start))
+            if let nextContextIndex = remainingLines.firstIndex(where: { line in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                return trimmed == "Context from my IDE setup:" || trimmed == "# Context from my IDE setup:"
+            }) {
+                let slice = remainingLines.prefix(nextContextIndex)
+                return slice.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            return remainingLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return message.text
     }

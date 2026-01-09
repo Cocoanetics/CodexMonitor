@@ -1,4 +1,4 @@
-# Codex Session Viewer
+# CodexMonitor
 
 Browse Codex session logs from `~/.codex/sessions`.
 
@@ -13,9 +13,9 @@ swift build
 ### List sessions
 
 ```sh
-swift run codex-sessions list 2026/01/08
-swift run codex-sessions list 2026/01
-swift run codex-sessions list 2026
+swift run CodexMonitor-CLI list 2026/01/08
+swift run CodexMonitor-CLI list 2026/01
+swift run CodexMonitor-CLI list 2026
 ```
 
 Output format:
@@ -37,8 +37,8 @@ Title rules:
 ### Show a session
 
 ```sh
-swift run codex-sessions show <session-id>
-swift run codex-sessions show <session-id> --ranges 1...3,25...28
+swift run CodexMonitor-CLI show <session-id>
+swift run CodexMonitor-CLI show <session-id> --ranges 1...3,25...28
 ```
 
 Outputs messages as markdown with headers and strips `<INSTRUCTIONS>` blocks.
@@ -52,8 +52,8 @@ Header format:
 Pretty JSON export:
 
 ```sh
-swift run codex-sessions show <session-id> --json
-swift run codex-sessions show <session-id> --json --ranges 1...3,25...28
+swift run CodexMonitor-CLI show <session-id> --json
+swift run CodexMonitor-CLI show <session-id> --json --ranges 1...3,25...28
 ```
 
 Includes a `summary` block (when available) plus all messages with timestamps.
@@ -61,11 +61,19 @@ Includes a `summary` block (when available) plus all messages with timestamps.
 ### Watch sessions
 
 ```sh
-swift run codex-sessions watch
-swift run codex-sessions watch --session <session-id>
+swift run CodexMonitor-CLI watch
+swift run CodexMonitor-CLI watch --session <session-id>
 ```
 
 Prints the list-style line for each new or updated `.jsonl` session file under the sessions root.
+
+## App (Menu Bar)
+
+```sh
+swift run CodexMonitor-App
+```
+
+Runs the menu bar app that shows recent and active Codex sessions.
 
 ## Notes
 

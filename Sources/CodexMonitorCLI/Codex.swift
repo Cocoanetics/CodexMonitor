@@ -598,7 +598,7 @@ private final class WatchState: @unchecked Sendable {
     private var cachedSummaries: [URL: SessionSummary] = [:]
     private var activeURLs: Set<URL> = []
     private let queue = DispatchQueue(label: "codex.sessions.watch")
-    private let logger = Logger(label: "codex-sessions.watch")
+    private let logger = Logger(label: "codex-monitor.watch")
 
     init(snapshot: [URL: Date], watchedFile: URL?, activeWindow: TimeInterval) {
         self.snapshot = snapshot
@@ -860,12 +860,12 @@ private func fseventsCallback(
 }
 
 @main
-struct CodexSessions: ParsableCommand {
+struct CodexMonitorCLI: ParsableCommand {
     static func main() {
         #if canImport(OSLog)
         LoggingSystem.bootstrap { label in
             let category = label.split(separator: ".").last?.description ?? "default"
-            let osLogger = OSLog(subsystem: "com.cocoanetics.codex-sessions", category: category)
+            let osLogger = OSLog(subsystem: "com.cocoanetics.codex-monitor", category: category)
             var handler = OSLogHandler(label: label, log: osLogger)
             handler.logLevel = .info
             return handler
@@ -874,15 +874,15 @@ struct CodexSessions: ParsableCommand {
         LoggingSystem.bootstrap(StreamLogHandler.standardError)
         #endif
         do {
-            var command = try CodexSessions.parseAsRoot()
+            var command = try CodexMonitorCLI.parseAsRoot()
             try command.run()
         } catch {
-            CodexSessions.exit(withError: error)
+            CodexMonitorCLI.exit(withError: error)
         }
     }
 
     static let configuration = CommandConfiguration(
-        commandName: "codex-sessions",
+        commandName: "CodexMonitor-CLI",
         abstract: "Browse Codex session logs.",
         subcommands: [List.self, Show.self, Watch.self]
     )
